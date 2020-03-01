@@ -1,0 +1,93 @@
+#!/bin/bash
+#BSUB -n 72
+# Number of processers allocated (in blocks) per compute node => 72 cores
+#BSUB -R "span[block=24]"
+#BSUB -W 2:00
+#BSUB -R "select[model == XeonGold6126]"
+#BSUB -R "rusage[mem=4GB]"
+#BSUB -J profiling
+
+# Load modules
+module purge
+module load mpi/3.1.3-gcc-8.2.0
+
+# Do not worry why this is here...
+unset LSB_AFFINITY_HOSTFILE
+
+# Build project
+make clean
+make CFLAGS="-O3 -march=native"
+
+# Loop matrix size
+for N in 100 1000 5000 10000 30000 50000
+do
+
+# Loop px
+all_p="1 2 4 8 9 18 36 72"
+for px in $all_p ; do
+for py in $all_p ; do
+np=$((px*py))
+
+# skip 1 processor counts
+[ $np -eq 1 ] && continue
+[ $np -gt 72 ] && continue
+
+blocks="16 48 192"
+for nx1 in $blocks ; do
+for ny1 in $nx1 ; do
+#for ny1 in $blocks ; do
+
+for nx2 in $blocks ; do
+for ny2 in $nx2 ; do
+#for ny2 in $blocks ; do
+
+# Skip copying algorithm
+[ $nx1 -eq $nx2 -a $ny1 -eq $ny2 ] && continue
+
+for algo in block
+do
+out="data/${N}_px${px}_py${py}_nx1_${nx1}_ny1_${ny1}_nx2_${nx2}_ny2_${ny2}_$algo"
+
+# Note that this submit script allocates 72 processors!
+# The below command will:
+#   1. Start-up $np processors
+#   2. place the $np processors on the 72 available processors such that
+#      the latency between the processors are minimized, yet spread.
+#   3. It will report how the processors are allocated on the sockets
+#      An example:
+#[n-62-31-13:233366] MCW rank 0 bound to socket 0[core 0[hwt 0]]: [B/././././././././././.][./././././././././././.]
+#[n-62-31-13:233366] MCW rank 1 bound to socket 0[core 1[hwt 0]]: [./B/./././././././././.][./././././././././././.]
+#[n-62-31-13:233366] MCW rank 2 bound to socket 0[core 2[hwt 0]]: [././B/././././././././.][./././././././././././.]
+#[n-62-31-13:233366] MCW rank 3 bound to socket 0[core 3[hwt 0]]: [./././B/./././././././.][./././././././././././.]
+#
+# This means that n-62-31-13 has:
+#  - 2 sockets, marked by [././././...]
+#  - all 4 cores are bound on the first socket
+# My example project has 9 arguments
+#
+#   N == Matrix dimensions
+#   p_r1 == number of ranks along the rows
+#   p_c1 == number of ranks along the columns
+#   nblock_r1 == row block-size (initial)
+#   nblock_c1 == column block-size (initial)
+#   p_r2 == number of ranks along the rows
+#   p_c2 == number of ranks along the columns
+#   nblock_r2 == row block-size (final)
+#   nblock_c2 == column block-size (final)
+
+# Note that I here use p_r1 == p_r2 and p_c1 == p_c2
+mpirun -np $np --map-by dist:span --mca rmaps_dist_device ib0 \
+    --report-bindings \
+    ./project $N $px $py $nx1 $ny1 $px $py $nx2 $ny2 > $out 2>${out}_binding
+[ $? -ne 0 ] && exit 1
+
+done
+
+done #ny2
+done #nx2
+done #ny1
+done #nx1
+done #py
+done #px
+done #N
+
