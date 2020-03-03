@@ -1,0 +1,8 @@
+core.*
+*.o
+*.swp
+*~
+
+project
+reference_scalapack
+test
