@@ -47,6 +47,16 @@ int local_size(int N, int nblock, int rank, int size) {
   }
 }
 
+int global2rank2d(int i_global, int j_global, int nblock, int pr, int pc) {
+  return to_lin(global2rank(i_global, nblock, pr),
+                global2rank(j_global, nblock, pc), pc);
+}
+
+int global2local2d(int N, int i_global, int j_global, int nblock, int pr, int pc) {
+  return to_lin(global2local(i_global, nblock, pr),
+                global2local(j_global, nblock, pc),
+                local_size(N, nblock, global2rank(j_global, nblock, pc), pc));
+}
 
 double * redistribute(int N, double *A_in, int nblock_in,
 		      int nblock_out,
@@ -145,24 +155,43 @@ double * redistribute(int N, double *A_in, int nblock_in,
 
 int main(int argc, char const *argv[])
 {
-    int pr = 3, pc = 2, nb = 1;
+    int N = 13, pr = 3, pc = 2, nb = 3;
 
-    for(int i = 0; i < 10; i++) {
-        for(int j = 0; j < 10; j++) {
+    for(int i = 0; i < N; i++) {
+        for(int j = 0; j < N; j++) {
             // printf(" %d", global2rank(i, j, nb, pr, pc));
             printf(" %d", to_lin(global2rank(i, nb, pr), global2rank(j, nb, pc), pc));
+        }
+
+        printf(" | ");
+
+        for(int j = 0; j < N; j++) {
+            printf(" %d", global2rank2d(i, j, nb, pr, pc));
         }
         puts("");
     }
 
     puts("");
 
-    for(int i = 0; i < 10; i++) {
-        for(int j = 0; j < 10; j++) {
-            // printf(" %2d", global2local(10, global2rank(i, j, nb, pr, pc), i, j, nb, pr, pc));
-            printf(" %2d", to_lin(global2local(i, nb, pr), global2local(j, nb, pc), local_size(10, nb, global2rank(j, nb, pc), pc)));
+    for(int i = 0; i < N; i++) {
+        for(int j = 0; j < N; j++) {
+            // printf(" %2d", global2local(N, global2rank(i, j, nb, pr, pc), i, j, nb, pr, pc));
+            printf(" %2d", to_lin(global2local(i, nb, pr), global2local(j, nb, pc), local_size(N, nb, global2rank(j, nb, pc), pc)));
+        }
+
+        printf(" | ");
+
+        for(int j = 0; j < N; j++) {
+            printf(" %2d", global2local2d(N, i, j, nb, pr, pc));
         }
         puts("");
     }
+
+    puts("");
+
+    for(int i = 0; i < pr*pc; i++)
+        printf(" %dx%d\n", local_size(N, nb, i, pr), local_size(N, nb, i, pc));
+      
+    
     return 0;
 }
