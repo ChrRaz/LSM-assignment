@@ -129,11 +129,7 @@ double *redistribute1(int N, double *A_in, int nblock_in, int nblock_out,
           MPI_Send(&A_in[idx_in], 1, MPI_DOUBLE, rank_out, 0, MPI_COMM_WORLD);
         }
       } else if (rank_out == rank) {
-        // We already know that we *have* to post a recieve N, int nblock, int rank, int size) {
-  // Total number of full blocks
-  int full_blocks = N / nblock;
-
-  // Minimum number of elements on each rank
+        // We already know that we *have* to post a recieve
         int idx_out = global2local2d(N, i, j, nblock_out, pr, pc);
 
 #ifdef DEBUG
