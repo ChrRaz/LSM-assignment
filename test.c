@@ -190,7 +190,7 @@ int main(int argc, char const *argv[])
     puts("");
 
     for(int i = 0; i < pr*pc; i++)
-        printf(" %dx%d\n", local_size(N, nb, i, pr), local_size(N, nb, i, pc));
+        printf(" %dx%d\n", local_size(N, nb, i/pc, pr), local_size(N, nb, i%pc, pc));
       
     
     return 0;
