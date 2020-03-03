@@ -6,6 +6,8 @@ MPIFC = mpifort
 CFLAGS = -O2
 FFLAGS = -O2
 
+CC = $(MPICC)
+
 # Libraries that are required in the project
 # We are linking against ScaLAPACK which depends on BLAS+LAPACK.
 # Hence we need both BLAS+LAPACK+ScaLAPACK!
