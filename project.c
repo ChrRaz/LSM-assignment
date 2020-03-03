@@ -71,6 +71,9 @@ int global2local2d(int N, int i_global, int j_global, int nblock, int pr,
 double *redistribute1(int N, double *A_in, int nblock_in, int nblock_out,
                       int rank, int pr, int pc) {
 
+  // Count the number of messages sent
+  int ncomms = 0;
+
   // First we calculate the new (local) matrix size
   int rows_local = local_size(N, nblock_out, rank/pc, pr);
   int cols_local = local_size(N, nblock_out, rank%pc, pc);
@@ -151,6 +154,8 @@ double *redistribute1(int N, double *A_in, int nblock_in, int nblock_out,
       usleep(250000);
       MPI_Barrier(MPI_COMM_WORLD);
 #endif
+
+      ncomms++;
     }
   }
 
@@ -170,6 +175,7 @@ double *redistribute1(int N, double *A_in, int nblock_in, int nblock_out,
   MPI_Reduce(&t, &t0, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
   MPI_Reduce(&t, &t1, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   if (rank == 0) {
+    printf("#transactions: %d\n", ncomms);
     printf("Time min/max  %12.8f / %12.8f ms\n", 1000 * t0, 1000 * t1);
     fflush(stdout);
   }
@@ -179,6 +185,9 @@ double *redistribute1(int N, double *A_in, int nblock_in, int nblock_out,
 
 double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
                       int rank, int pr, int pc) {
+
+  // Count the number of messages sent
+  int ncomms = 0;
 
   // First we calculate the new (local) matrix size
   int rows_local = local_size(N, nblock_out, rank/pc, pr);
@@ -265,6 +274,7 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
 #endif
 
       j += width;
+      ncomms++;
     }
     i++;
   }
@@ -285,6 +295,7 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
   MPI_Reduce(&t, &t0, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
   MPI_Reduce(&t, &t1, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   if (rank == 0) {
+    printf("#transactions: %d\n", ncomms);    
     printf("Time min/max  %12.8f / %12.8f ms\n", 1000 * t0, 1000 * t1);
     fflush(stdout);
   }
@@ -363,6 +374,13 @@ int main(int argc, char *argv[]) {
 
   // Redistribute to the next level
   double *A_2 = redis(N, A_1, nblock_1, nblock_2, rank, pr, pc);
+
+  // if (rank == 0) {
+  //   for ( int i = 0 ; i < N * N ; i++ ) {
+  //     printf(" %f%s", A_dense[i], i % N == N - 1 ? "\n" : "");
+  //   }
+  //   fflush(stdout);
+  // }
 
   // Clean-up memory
   free(A_1);
