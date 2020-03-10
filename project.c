@@ -14,7 +14,7 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 #ifndef redis
-#define redis redistribute1
+#define redis redistribute3
 #endif
 
 //#define rprintf(format, ...) printf("[%d] " format, rank, __VA_ARGS__)
@@ -287,6 +287,280 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
     }
     i++;
   }
+
+  // Final timing
+  double t1 = MPI_Wtime();
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  if (rank == 0) {
+    printf("Done redistributing matrix from nb=%d to nb=%d\n", nblock_in,
+           nblock_out);
+    fflush(stdout);
+  }
+
+  // Print timings, min/max
+  double t = t1 - t0;
+  MPI_Reduce(&t, &t0, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&t, &t1, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+  if (rank == 0) {
+    printf("#transactions: %d\n", ncomms);    
+    printf("Time min/max  %12.8f / %12.8f ms\n", 1000 * t0, 1000 * t1);
+    fflush(stdout);
+  }
+
+  return A_out;
+}
+
+double *redistribute3(int N, double *A_in, int nblock_in, int nblock_out,
+                      int rank, int pr, int pc) {
+
+  // Count the number of messages sent
+  int ncomms = 0;
+
+  int rows_local_old = local_size(N, nblock_in, rank/pc, pr);
+  int cols_local_old = local_size(N, nblock_in, rank%pc, pc);
+  
+  // First we calculate the new (local) matrix size
+  int rows_local = local_size(N, nblock_out, rank/pc, pr);
+  int cols_local = local_size(N, nblock_out, rank%pc, pc);
+
+  if (rank == 0) {
+    printf("\nStart redistribute matrix from nb=%d to nb=%d\n", nblock_in,
+           nblock_out);
+    fflush(stdout);
+  }
+
+#ifdef DEBUG
+  MPI_Barrier(MPI_COMM_WORLD);
+  printf(" [%2d] local rows %d\n", rank, rows_local);
+  printf(" [%2d] local cols %d\n", rank, cols_local);
+  fflush(stdout);
+#endif
+
+  // Allocate memory for the new distributed matrix
+  double *A_out = (double *)malloc(rows_local * cols_local * sizeof(double));
+
+  MPI_Request *reqs = malloc(sizeof(MPI_Request) * 2 * N);
+  MPI_Status *stats = malloc(sizeof(MPI_Status) * 2 * N);
+
+  // align ranks
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  double t0 = MPI_Wtime();
+
+  // Now all processors are ready for send/recv data
+  for (int i = 0; i < N;) {
+    int req_count = 0;
+    for (int j = 0; j < N;) {
+      // Figure out which ranks has and which should have the given global index
+      int rank_in = global2rank2d(i, j, nblock_in, pr, pc);
+      int rank_out = global2rank2d(i, j, nblock_out, pr, pc);
+
+      // Figure out how wide the current block is
+      int next_div = MIN((j / nblock_in + 1) * nblock_in, (j / nblock_out + 1) * nblock_out);
+      int width = MIN(N - j, next_div - j);      
+
+#ifdef DEBUG
+      if (rank == 0) {
+        printf("cell (%3d,%3d)  %2d -> %2d\n", i, j, rank_in, rank_out);
+      }
+#endif
+
+      if (rank_in == rank) {
+        // currently hosting rank has this row
+        int idx_in = global2local2d(N, i, j, nblock_in, pr, pc);
+        if (rank_out == rank) {
+          // this rank also has the receive
+          int idx_out = global2local2d(N, i, j, nblock_out, pr, pc);
+
+#ifdef DEBUG
+          // Copy data
+          printf(" [%2d] COPY %3d,%3d (%3d)\n", rank, i, j, idx_in);
+          fflush(stdout);
+#endif
+
+          assert(idx_in + width <= cols_local_old * rows_local_old);
+          assert(idx_out + width <= cols_local * rows_local);
+          
+          memcpy(&A_out[idx_out], &A_in[idx_in], width * sizeof(double));
+        } else {
+
+#ifdef DEBUG
+          printf(" [%2d] SEND %3d,%3d (%3d) to %2d\n", rank, i, j, idx_in,
+                 rank_out);
+          fflush(stdout);
+#endif
+
+          assert(idx_in + width <= cols_local_old * rows_local_old);
+          MPI_Isend(&A_in[idx_in], width, MPI_DOUBLE, rank_out, 0, MPI_COMM_WORLD,&reqs[req_count]);
+          req_count++;
+        }
+      } else if (rank_out == rank) {
+        // We already know that we *have* to post a recieve
+        int idx_out = global2local2d(N, i, j, nblock_out, pr, pc);
+
+#ifdef DEBUG
+        printf(" [%2d] RECV %3d,%3d (%3d) from %2d\n", rank, i, j, idx_out, rank_in);
+        fflush(stdout);
+#endif
+
+        assert(idx_out + width <= cols_local * rows_local);
+        MPI_Irecv(&A_out[idx_out], width, MPI_DOUBLE, rank_in, 0, MPI_COMM_WORLD,&reqs[req_count]);
+        req_count++;
+      }
+
+#ifdef DEBUGSLEEP
+      usleep(250000);
+      MPI_Barrier(MPI_COMM_WORLD);
+#endif
+
+      j += width;
+      ncomms++;
+    }
+    MPI_Waitall(req_count,reqs,stats);
+    i++;
+  }
+
+  free(reqs);
+  free(stats);
+
+  // Final timing
+  double t1 = MPI_Wtime();
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  if (rank == 0) {
+    printf("Done redistributing matrix from nb=%d to nb=%d\n", nblock_in,
+           nblock_out);
+    fflush(stdout);
+  }
+
+  // Print timings, min/max
+  double t = t1 - t0;
+  MPI_Reduce(&t, &t0, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&t, &t1, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+  if (rank == 0) {
+    printf("#transactions: %d\n", ncomms);    
+    printf("Time min/max  %12.8f / %12.8f ms\n", 1000 * t0, 1000 * t1);
+    fflush(stdout);
+  }
+
+  return A_out;
+}
+
+double *redistribute4(int N, double *A_in, int nblock_in, int nblock_out,
+                      int rank, int pr, int pc) {
+
+  // Count the number of messages sent
+  int ncomms = 0;
+
+  int rows_local_old = local_size(N, nblock_in, rank/pc, pr);
+  int cols_local_old = local_size(N, nblock_in, rank%pc, pc);
+
+  // First we calculate the new (local) matrix size
+  int rows_local = local_size(N, nblock_out, rank/pc, pr);
+  int cols_local = local_size(N, nblock_out, rank%pc, pc);
+
+  if (rank == 0) {
+    printf("\nStart redistribute matrix from nb=%d to nb=%d\n", nblock_in,
+           nblock_out);
+    fflush(stdout);
+  }
+
+#ifdef DEBUG
+  MPI_Barrier(MPI_COMM_WORLD);
+  printf(" [%2d] local rows %d\n", rank, rows_local);
+  printf(" [%2d] local cols %d\n", rank, cols_local);
+  fflush(stdout);
+#endif
+
+  // Allocate memory for the new distributed matrix
+  double *A_out = (double *)malloc(rows_local * cols_local * sizeof(double));
+
+  MPI_Request *reqs = malloc(sizeof(MPI_Request) * (cols_local_old + cols_local));
+  MPI_Status *stats = malloc(sizeof(MPI_Status) * (cols_local_old + cols_local));
+
+  // align ranks
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  double t0 = MPI_Wtime();
+
+  // Now all processors are ready for send/recv data
+  for (int i = 0; i < N;) {
+    int req_count = 0;
+    for (int j = 0; j < N;) {
+      // Figure out which ranks has and which should have the given global index
+      int rank_in = global2rank2d(i, j, nblock_in, pr, pc);
+      int rank_out = global2rank2d(i, j, nblock_out, pr, pc);
+
+      // Figure out how wide the current block is
+      int next_div = MIN((j / nblock_in + 1) * nblock_in, (j / nblock_out + 1) * nblock_out);
+      int width = MIN(N - j, next_div - j);      
+
+#ifdef DEBUG
+      if (rank == 0) {
+        printf("cell (%3d,%3d)  %2d -> %2d\n", i, j, rank_in, rank_out);
+      }
+#endif
+
+      if (rank_in == rank) {
+        // currently hosting rank has this row
+        int idx_in = global2local2d(N, i, j, nblock_in, pr, pc);
+        if (rank_out == rank) {
+          // this rank also has the receive
+          int idx_out = global2local2d(N, i, j, nblock_out, pr, pc);
+
+#ifdef DEBUG
+          // Copy data
+          printf(" [%2d] COPY %3d,%3d (%3d)\n", rank, i, j, idx_in);
+          fflush(stdout);
+#endif
+
+          assert(idx_in + width <= cols_local_old * rows_local_old);
+          assert(idx_out + width <= cols_local * rows_local);
+          
+          memcpy(&A_out[idx_out], &A_in[idx_in], width * sizeof(double));
+        } else {
+
+#ifdef DEBUG
+          printf(" [%2d] SEND %3d,%3d (%3d) to %2d\n", rank, i, j, idx_in,
+                 rank_out);
+          fflush(stdout);
+#endif
+
+          assert(idx_in + width <= cols_local_old * rows_local_old);
+          MPI_Isend(&A_in[idx_in], width, MPI_DOUBLE, rank_out, 0, MPI_COMM_WORLD,&reqs[req_count]);
+          req_count++;
+        }
+      } else if (rank_out == rank) {
+        // We already know that we *have* to post a recieve
+        int idx_out = global2local2d(N, i, j, nblock_out, pr, pc);
+
+#ifdef DEBUG
+        printf(" [%2d] RECV %3d,%3d (%3d) from %2d\n", rank, i, j, idx_out, rank_in);
+        fflush(stdout);
+#endif
+
+        assert(idx_out + width <= cols_local * rows_local);
+        MPI_Irecv(&A_out[idx_out], width, MPI_DOUBLE, rank_in, 0, MPI_COMM_WORLD,&reqs[req_count]);
+        req_count++;
+      }
+
+#ifdef DEBUGSLEEP
+      usleep(250000);
+      MPI_Barrier(MPI_COMM_WORLD);
+#endif
+
+      j += width;
+      ncomms++;
+    }
+    MPI_Waitall(req_count,reqs,stats);
+    i++;
+  }
+
+  free(reqs);
+  free(stats);
 
   // Final timing
   double t1 = MPI_Wtime();
