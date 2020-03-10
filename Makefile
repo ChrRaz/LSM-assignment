@@ -5,6 +5,7 @@ MPICC = mpicc
 MPIFC = mpifort
 CFLAGS = -O2
 FFLAGS = -O2
+TARGETS = reference_scalapack project
 
 CC = $(MPICC)
 
@@ -21,7 +22,14 @@ SCALAPACK_LIBS = -L$(SCALAPACK_PATH) -lscalapack -llapack -lblas
 # need to link against the gfortran library.
 LIBS = $(SCALAPACK_LIBS) $(LAPACKBLAS_LIBS) -lgfortran
 
+all: $(TARGETS)
+
 # Application
+project: CPPFLAGS += -Dredis=redistribute2
+#project: CPPFLAGS += -DDEBUG
+project: project.o
+	$(MPICC) -o $@ $^
+
 reference_scalapack: reference_scalapack.o
 	$(MPICC) -o $@ $< $(LIBS)
 
@@ -30,4 +38,4 @@ reference_scalapack.o: reference_scalapack.c
 	$(MPICC) -c $(CFLAGS) $<
 
 clean:
-	rm -f reference_scalapack.o reference_scalapack
+	$(RM) $(TARGETS) $(TARGETS:%=%.o)
