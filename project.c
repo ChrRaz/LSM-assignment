@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include <mpi.h>
 
@@ -189,6 +190,9 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
   // Count the number of messages sent
   int ncomms = 0;
 
+  int rows_local_old = local_size(N, nblock_in, rank/pc, pr);
+  int cols_local_old = local_size(N, nblock_in, rank%pc, pc);
+
   // First we calculate the new (local) matrix size
   int rows_local = local_size(N, nblock_out, rank/pc, pr);
   int cols_local = local_size(N, nblock_out, rank%pc, pc);
@@ -222,8 +226,8 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
       int rank_out = global2rank2d(i, j, nblock_out, pr, pc);
 
       // Figure out how wide the current block is
-      int width = MIN((j / nblock_in + 1) * nblock_in, (j / nblock_out + 1) * nblock_out) - j;
-      
+      int next_div = MIN((j / nblock_in + 1) * nblock_in, (j / nblock_out + 1) * nblock_out);
+      int width = MIN(N - j, next_div - j);
 
 #ifdef DEBUG
       if (rank == 0) {
@@ -244,6 +248,9 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
           fflush(stdout);
 #endif
 
+          assert(idx_in + width <= cols_local_old * rows_local_old);
+          assert(idx_out + width <= cols_local * rows_local);
+
           memcpy(&A_out[idx_out], &A_in[idx_in], width * sizeof(double));
         } else {
 
@@ -253,6 +260,7 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
           fflush(stdout);
 #endif
 
+          assert(idx_in + width <= cols_local_old * rows_local_old);
           MPI_Send(&A_in[idx_in], width, MPI_DOUBLE, rank_out, 0, MPI_COMM_WORLD);
         }
       } else if (rank_out == rank) {
@@ -264,6 +272,7 @@ double *redistribute2(int N, double *A_in, int nblock_in, int nblock_out,
         fflush(stdout);
 #endif
 
+        assert(idx_out + width <= cols_local * rows_local);
         MPI_Recv(&A_out[idx_out], width, MPI_DOUBLE, rank_in, 0, MPI_COMM_WORLD,
                  MPI_STATUS_IGNORE);
       }
