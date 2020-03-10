@@ -6,6 +6,8 @@
 #BSUB -R "select[model == XeonGold6126]"
 #BSUB -R "rusage[mem=4GB]"
 #BSUB -J profiling
+#BSUB -o logs/profiling_%J.out
+#BSUB -e logs/profiling_%J.err
 
 # Load modules
 module purge
@@ -24,29 +26,22 @@ do
 
 # Loop px
 all_p="1 2 4 8 9 18 36 72"
-for px in $all_p ; do
-for py in $all_p ; do
-np=$((px*py))
+for pc in $all_p ; do
+for pr in $all_p ; do
+np=$((pc*pr))
 
 # skip 1 processor counts
 [ $np -eq 1 ] && continue
 [ $np -gt 72 ] && continue
 
 blocks="16 48 192"
-for nx1 in $blocks ; do
-for ny1 in $nx1 ; do
-#for ny1 in $blocks ; do
-
-for nx2 in $blocks ; do
-for ny2 in $nx2 ; do
-#for ny2 in $blocks ; do
+for nb1 in $blocks ; do
+for nb2 in $blocks ; do
 
 # Skip copying algorithm
-[ $nx1 -eq $nx2 -a $ny1 -eq $ny2 ] && continue
+[ $nb1 -eq $nb2 ] && continue
 
-for algo in block
-do
-out="data/${N}_px${px}_py${py}_nx1_${nx1}_ny1_${ny1}_nx2_${nx2}_ny2_${ny2}_$algo"
+out="data/${N}_pc${pc}_pr${pr}_nb1_${nb1}_nb2_${nb2}"
 
 # Note that this submit script allocates 72 processors!
 # The below command will:
@@ -76,18 +71,17 @@ out="data/${N}_px${px}_py${py}_nx1_${nx1}_ny1_${ny1}_nx2_${nx2}_ny2_${ny2}_$algo
 #   nblock_c2 == column block-size (final)
 
 # Note that I here use p_r1 == p_r2 and p_c1 == p_c2
+echo "mpirun -np $np --map-by dist:span --mca rmaps_dist_device ib0 \
+    --report-bindings \
+    ./project $N $pc $pr $nb1 $nb2"
 mpirun -np $np --map-by dist:span --mca rmaps_dist_device ib0 \
     --report-bindings \
-    ./project $N $px $py $nx1 $ny1 $px $py $nx2 $ny2 > $out 2>${out}_binding
+    ./project $N $pc $pr $nb1 $nb2 > $out 2>${out}_binding
 [ $? -ne 0 ] && exit 1
 
-done
-
-done #ny2
-done #nx2
-done #ny1
-done #nx1
-done #py
-done #px
+done #nb2
+done #nb1
+done #pr
+done #pc
 done #N
 
