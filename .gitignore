@@ -6,3 +6,6 @@ core.*
 project
 reference_scalapack
 test
+
+logs/
+data/
