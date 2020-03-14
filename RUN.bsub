@@ -43,6 +43,8 @@ for nb2 in $blocks ; do
 
 out="data/${N}_pc${pc}_pr${pr}_nb1_${nb1}_nb2_${nb2}"
 
+[ -e "$out" ] && continue
+
 # Note that this submit script allocates 72 processors!
 # The below command will:
 #   1. Start-up $np processors
